@@ -48,8 +48,9 @@ export default async ({ req, res, log, error }) => {
       attachments: []
     };
 
-    // Retrieve stored image_data by serveId and attach it
+    // Fetch the `image_data` from Appwrite if `serveId` is provided
     if (serveId) {
+      log(`Fetching serve attempt with ID: ${serveId}`);
       try {
         const serve = await databases.getDocument(
           process.env.APPWRITE_FUNCTION_DATABASE_ID,
@@ -57,18 +58,25 @@ export default async ({ req, res, log, error }) => {
           serveId
         );
         if (serve.image_data) {
+          log('Found image_data in serve attempt document');
+          // Check if image_data is a data URL or directly base64
+          let base64Content = serve.image_data;
+          if (serve.image_data.includes('base64,')) {
+            base64Content = serve.image_data.split('base64,')[1];
+          }
+          log(`Extracted base64 content length: ${base64Content.length}`);
           emailData.attachments.push({
             filename: 'serve_evidence.jpeg',
-            content: serve.image_data.split('base64,')[1],
+            content: base64Content,
             encoding: 'base64'
           });
-          log('Image attached to email');
+          log('Image successfully attached to email');
         } else {
-          log('No image_data found in serve record');
+          log('No image_data found in serve attempt document');
         }
       } catch (fetchError) {
-        error('Error fetching serve document:', fetchError.message);
-        return res.json({ success: false, message: "Failed to fetch serve document" });
+        error('Failed to fetch serve attempt document:', fetchError.message);
+        return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
       }
     }
 
