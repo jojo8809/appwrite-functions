@@ -19,7 +19,7 @@ export default async ({ req, res, log, error }) => {
     log(JSON.stringify(req.bodyJson));
     log(JSON.stringify(req.headers));
 
-    const { to, subject, html, text, serveId } = payload;
+    const { to, subject, html, text, serveId, imageData } = payload;
 
     if (!to || !subject || (!html && !text)) {
       return res.json({ success: false, message: "Missing required fields (to, subject, and either html or text)" });
@@ -48,7 +48,8 @@ export default async ({ req, res, log, error }) => {
       attachments: []
     };
 
-    // Fetch the `image_data` from Appwrite if `serveId` is provided
+    // If serveId is provided, fetch the document to get image_data,
+    // otherwise, if imageData is provided, use it directly.
     if (serveId) {
       log(`Fetching serve attempt with ID: ${serveId}`);
       try {
@@ -59,7 +60,6 @@ export default async ({ req, res, log, error }) => {
         );
         if (serve.image_data) {
           log('Found image_data in serve attempt document');
-          // Check if image_data is a data URL or directly base64
           let base64Content = serve.image_data;
           if (serve.image_data.includes('base64,')) {
             base64Content = serve.image_data.split('base64,')[1];
@@ -70,7 +70,7 @@ export default async ({ req, res, log, error }) => {
             content: base64Content,
             encoding: 'base64'
           });
-          log('Image successfully attached to email');
+          log('Image successfully attached from serve document');
         } else {
           log('No image_data found in serve attempt document');
         }
@@ -78,6 +78,21 @@ export default async ({ req, res, log, error }) => {
         error('Failed to fetch serve attempt document:', fetchError.message);
         return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
       }
+    } else if (imageData) {
+      log("Using imageData provided in payload");
+      let base64Content = imageData;
+      if (imageData.includes("base64,")) {
+        base64Content = imageData.split("base64,")[1];
+      }
+      log(`Extracted base64 content length: ${base64Content.length}`);
+      emailData.attachments.push({
+        filename: 'serve_evidence.jpeg',
+        content: base64Content,
+        encoding: 'base64'
+      });
+      log('Image successfully attached using provided imageData');
+    } else {
+      log("No serveId or imageData provided; no image will be attached");
     }
 
     // Send email
