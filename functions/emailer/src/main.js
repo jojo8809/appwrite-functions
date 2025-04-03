@@ -4,6 +4,12 @@ import { Client, Databases } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
   log('Processing request...');
+  
+  // Check for proper Content-Type header
+  if (!req.headers || !req.headers["content-type"] || !req.headers["content-type"].includes("application/json")) {
+    error("Invalid Content-Type header. Expected application/json.");
+    return res.json({ success: false, message: "Invalid Content-Type header. Please set it to application/json." });
+  }
 
   try {
     // Get payload from request with improved error handling using bodyText if available
