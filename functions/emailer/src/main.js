@@ -4,37 +4,20 @@ import { Client, Databases } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
   log('Processing request...');
-  
-  // Check for proper Content-Type header
-  if (!req.headers || !req.headers["content-type"] || !req.headers["content-type"].includes("application/json")) {
-    error("Invalid Content-Type header. Expected application/json.");
-    return res.json({ success: false, message: "Invalid Content-Type header. Please set it to application/json." });
-  }
 
   try {
-    // Get payload from request with improved error handling using bodyText if available
-    let payload = null;
-    try {
-      // Prefer using req.bodyText which should contain the raw JSON payload
-      let rawPayload = req.bodyText;
-      if (!rawPayload && req.body) {
-        rawPayload = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-      }
-      if (!rawPayload) {
-        throw new Error("No valid payload found in request");
-      }
-      if (rawPayload.trim().startsWith("<")) {
-        // Instead of trying to parse HTML as JSON, throw a clear error.
-        throw new Error("Payload appears to be HTML instead of valid JSON. Check request headers or source.");
-      }
-      payload = JSON.parse(rawPayload);
-    } catch (parseError) {
-      error(`Error parsing payload: ${parseError.message}`);
-      log("Payload content (truncated):", req.bodyText ? req.bodyText.substring(0, 100) : (typeof req.body === 'string' ? req.body.substring(0, 100) : ""));
-      return res.json({ success: false, message: `Failed to parse payload: ${parseError.message}` });
+    // Get payload from request
+    const payload = req.payload
+      ? (typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload)
+      : (req.body ? (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) : null);
+
+    if (!payload) {
+      return res.json({ success: false, message: "No payload provided" });
     }
 
-    log("Payload extracted successfully:", JSON.stringify(payload));
+    log(req.bodyText);
+    log(JSON.stringify(req.bodyJson));
+    log(JSON.stringify(req.headers));
 
     const { to, subject, html, text, serveId, imageData } = payload;
 
@@ -77,50 +60,48 @@ export default async ({ req, res, log, error }) => {
         );
         if (serve.image_data) {
           log('Found image_data in serve attempt document');
-          let base64Content = serve.image_data.includes('base64,')
-            ? serve.image_data.split('base64,')[1]
-            : serve.image_data;
+          let base64Content = serve.image_data;
+          if (serve.image_data.includes('base64,')) {
+            base64Content = serve.image_data.split('base64,')[1];
+          }
           log(`Extracted base64 content length: ${base64Content.length}`);
           emailData.attachments.push({
             filename: 'serve_evidence.jpeg',
             content: base64Content,
             encoding: 'base64'
           });
+          log('Image successfully attached from serve document');
         } else {
           log('No image_data found in serve attempt document');
         }
       } catch (fetchError) {
         error('Failed to fetch serve attempt document:', fetchError.message);
-        return res.json({ success: false, message: 'Failed to fetch serve attempt document' });
+        return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
       }
     } else if (imageData) {
       log("Using imageData provided in payload");
-      let base64Content = imageData.includes("base64,")
-        ? imageData.split("base64,")[1]
-        : imageData;
+      let base64Content = imageData;
+      if (imageData.includes("base64,")) {
+        base64Content = imageData.split("base64,")[1];
+      }
       log(`Extracted base64 content length: ${base64Content.length}`);
       emailData.attachments.push({
         filename: 'serve_evidence.jpeg',
         content: base64Content,
         encoding: 'base64'
       });
+      log('Image successfully attached using provided imageData');
     } else {
       log("No serveId or imageData provided; no image will be attached");
     }
 
-    // Attempt to send the email and log response details
-    log("About to send email with Resend");
-    try {
-      const response = await resend.emails.send(emailData);
-      log("Resend response:", JSON.stringify(response));
-      return res.json({ success: true, message: "Email sent successfully", data: response });
-    } catch (sendError) {
-      error("Error sending email with Resend:", sendError.message);
-      return res.json({ success: false, message: `Failed to send email: ${sendError.message}` });
-    }
+    // Send email
+    const response = await resend.emails.send(emailData);
+
+    return res.json({ success: true, message: "Email sent successfully", data: response });
 
   } catch (err) {
-    error("Error in emailer function:", err);
+    error(err);
     return res.json({ success: false, message: `Error: ${err.message}` });
   }
 };
