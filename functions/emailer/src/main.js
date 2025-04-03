@@ -1,4 +1,3 @@
-
 import { Resend } from 'resend';
 import process from "node:process";
 import { Client, Databases } from 'node-appwrite';
@@ -17,6 +16,10 @@ export default async ({ req, res, log, error }) => {
       }
       if (!rawPayload) {
         throw new Error("No valid payload found in request");
+      }
+      if (rawPayload.trim().startsWith("<")) {
+        // Instead of trying to parse HTML as JSON, throw a clear error.
+        throw new Error("Payload appears to be HTML instead of valid JSON. Check request headers or source.");
       }
       payload = JSON.parse(rawPayload);
     } catch (parseError) {
