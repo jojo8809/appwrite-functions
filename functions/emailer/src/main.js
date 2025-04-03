@@ -1,3 +1,4 @@
+
 import { Resend } from 'resend';
 import process from "node:process";
 import { Client, Databases } from 'node-appwrite';
@@ -6,24 +7,21 @@ export default async ({ req, res, log, error }) => {
   log('Processing request...');
 
   try {
-    // Get payload from request with improved error handling
+    // Get payload from request with improved error handling using bodyText if available
     let payload = null;
     try {
-      if (req.payload) {
-        log("Request has payload property");
-        // Removed HTML check so we try to parse every string payload
-        payload = typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload;
-      } else if (req.body) {
-        log("Request has body property");
-        payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      // Prefer using req.bodyText which should contain the raw JSON payload
+      let rawPayload = req.bodyText;
+      if (!rawPayload && req.body) {
+        rawPayload = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
       }
-
-      if (!payload) {
+      if (!rawPayload) {
         throw new Error("No valid payload found in request");
       }
+      payload = JSON.parse(rawPayload);
     } catch (parseError) {
       error(`Error parsing payload: ${parseError.message}`);
-      log("Payload content (truncated):", req.payload?.substring(0, 100) || req.body?.substring(0, 100));
+      log("Payload content (truncated):", req.bodyText ? req.bodyText.substring(0, 100) : (typeof req.body === 'string' ? req.body.substring(0, 100) : ""));
       return res.json({ success: false, message: `Failed to parse payload: ${parseError.message}` });
     }
 
