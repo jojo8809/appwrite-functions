@@ -11,10 +11,25 @@ export default async ({ req, res, log, error }) => {
     try {
       if (req.payload) {
         log("Request has payload property");
-        payload = typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload;
+        if (typeof req.payload === 'string') {
+          // If payload appears to be HTML, reject immediately
+          if (req.payload.trim().startsWith("<")) {
+            throw new Error("Payload appears to be HTML instead of JSON");
+          }
+          payload = JSON.parse(req.payload);
+        } else {
+          payload = req.payload;
+        }
       } else if (req.body) {
         log("Request has body property");
-        payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        if (typeof req.body === 'string') {
+          if (req.body.trim().startsWith("<")) {
+            throw new Error("Body appears to be HTML instead of JSON");
+          }
+          payload = JSON.parse(req.body);
+        } else {
+          payload = req.body;
+        }
       }
 
       if (!payload) {
