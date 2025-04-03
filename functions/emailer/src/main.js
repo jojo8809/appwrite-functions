@@ -1,4 +1,4 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import process from "node:process";
 import { Client, Databases } from 'node-appwrite';
 
@@ -25,14 +25,6 @@ export default async ({ req, res, log, error }) => {
       return res.json({ success: false, message: "Missing required fields (to, subject, and either html or text)" });
     }
 
-    // Get API key from environment variables
-    const resendApiKey = process.env.RESEND_KEY;
-    if (!resendApiKey) {
-      return res.json({ success: false, message: "API key is missing" });
-    }
-
-    const resend = new Resend(resendApiKey);
-
     const appwriteClient = new Client()
       .setEndpoint(process.env.APPWRITE_FUNCTION_API_ENDPOINT)
       .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
@@ -40,7 +32,7 @@ export default async ({ req, res, log, error }) => {
     const databases = new Databases(appwriteClient);
 
     const emailData = {
-      from: 'no-reply@justlegalsolutions.tech',
+      from: process.env.SMTP_FROM || 'no-reply@example.com',
       to: Array.isArray(to) ? to : [to],
       subject,
       html,
@@ -95,8 +87,19 @@ export default async ({ req, res, log, error }) => {
       log("No serveId or imageData provided; no image will be attached");
     }
 
-    // Send email
-    const response = await resend.emails.send(emailData);
+    // Read SMTP vars
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD
+      }
+    });
+
+    // Send via Nodemailer
+    const response = await transporter.sendMail(emailData);
 
     return res.json({ success: true, message: "Email sent successfully", data: response });
 
