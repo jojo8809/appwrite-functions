@@ -27,6 +27,7 @@ export default async ({ req, res, log, error }) => {
 
     // Get API key from environment variables
     const resendApiKey = process.env.RESEND_KEY;
+    log("Resend API key:", resendApiKey);
     if (!resendApiKey) {
       return res.json({ success: false, message: "API key is missing" });
     }
@@ -95,10 +96,20 @@ export default async ({ req, res, log, error }) => {
       log("No serveId or imageData provided; no image will be attached");
     }
 
-    // Send email
-    const response = await resend.emails.send(emailData);
+    // Log final emailData payload
+    log("Final emailData payload:", JSON.stringify(emailData));
 
-    return res.json({ success: true, message: "Email sent successfully", data: response });
+    // Send email and log detailed response
+    let responseData;
+    try {
+      responseData = await resend.emails.send(emailData);
+      log("Resend email response:", JSON.stringify(responseData));
+    } catch (sendError) {
+      error("Error calling resend.emails.send:", sendError);
+      return res.json({ success: false, message: `Resend error: ${sendError.message}` });
+    }
+
+    return res.json({ success: true, message: "Email sent successfully", data: responseData });
 
   } catch (err) {
     error(err);
