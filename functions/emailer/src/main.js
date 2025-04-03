@@ -6,18 +6,27 @@ export default async ({ req, res, log, error }) => {
   log('Processing request...');
 
   try {
-    // Get payload from request
-    const payload = req.payload
-      ? (typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload)
-      : (req.body ? (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) : null);
+    // Get payload from request with improved error handling
+    let payload = null;
+    try {
+      if (req.payload) {
+        log("Request has payload property");
+        payload = typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload;
+      } else if (req.body) {
+        log("Request has body property");
+        payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      }
 
-    if (!payload) {
-      return res.json({ success: false, message: "No payload provided" });
+      if (!payload) {
+        throw new Error("No valid payload found in request");
+      }
+    } catch (parseError) {
+      error(`Error parsing payload: ${parseError.message}`);
+      log("Payload content (truncated):", req.payload?.substring(0, 100) || req.body?.substring(0, 100));
+      return res.json({ success: false, message: `Failed to parse payload: ${parseError.message}` });
     }
 
-    log(req.bodyText);
-    log(JSON.stringify(req.bodyJson));
-    log(JSON.stringify(req.headers));
+    log("Payload extracted successfully:", JSON.stringify(payload));
 
     const { to, subject, html, text, serveId, imageData } = payload;
 
@@ -60,48 +69,50 @@ export default async ({ req, res, log, error }) => {
         );
         if (serve.image_data) {
           log('Found image_data in serve attempt document');
-          let base64Content = serve.image_data;
-          if (serve.image_data.includes('base64,')) {
-            base64Content = serve.image_data.split('base64,')[1];
-          }
+          let base64Content = serve.image_data.includes('base64,')
+            ? serve.image_data.split('base64,')[1]
+            : serve.image_data;
           log(`Extracted base64 content length: ${base64Content.length}`);
           emailData.attachments.push({
             filename: 'serve_evidence.jpeg',
             content: base64Content,
             encoding: 'base64'
           });
-          log('Image successfully attached from serve document');
         } else {
           log('No image_data found in serve attempt document');
         }
       } catch (fetchError) {
         error('Failed to fetch serve attempt document:', fetchError.message);
-        return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
+        return res.json({ success: false, message: 'Failed to fetch serve attempt document' });
       }
     } else if (imageData) {
       log("Using imageData provided in payload");
-      let base64Content = imageData;
-      if (imageData.includes("base64,")) {
-        base64Content = imageData.split("base64,")[1];
-      }
+      let base64Content = imageData.includes("base64,")
+        ? imageData.split("base64,")[1]
+        : imageData;
       log(`Extracted base64 content length: ${base64Content.length}`);
       emailData.attachments.push({
         filename: 'serve_evidence.jpeg',
         content: base64Content,
         encoding: 'base64'
       });
-      log('Image successfully attached using provided imageData');
     } else {
       log("No serveId or imageData provided; no image will be attached");
     }
 
-    // Send email
-    const response = await resend.emails.send(emailData);
-
-    return res.json({ success: true, message: "Email sent successfully", data: response });
+    // Attempt to send the email and log response details
+    log("About to send email with Resend");
+    try {
+      const response = await resend.emails.send(emailData);
+      log("Resend response:", JSON.stringify(response));
+      return res.json({ success: true, message: "Email sent successfully", data: response });
+    } catch (sendError) {
+      error("Error sending email with Resend:", sendError.message);
+      return res.json({ success: false, message: `Failed to send email: ${sendError.message}` });
+    }
 
   } catch (err) {
-    error(err);
+    error("Error in emailer function:", err);
     return res.json({ success: false, message: `Error: ${err.message}` });
   }
 };
