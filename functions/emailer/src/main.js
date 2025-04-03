@@ -1,111 +1,116 @@
-import { Resend } from 'resend';
-import process from "node:process";
-import { Client, Databases } from 'node-appwrite';
+import { ServeAttemptData } from "@/components/ServeAttempt";
+import { ClientData } from "@/components/ClientForm";
 
-export default async ({ req, res, log, error }) => {
-  log('Processing request...');
-
-  try {
-    // Get payload from request
-    const payload = req.payload
-      ? (typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload)
-      : (req.body ? (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) : null);
-
-    if (!payload) {
-      return res.json({ success: false, message: "No payload provided" });
-    }
-
-    log(req.bodyText);
-    log(JSON.stringify(req.bodyJson));
-    log(JSON.stringify(req.headers));
-
-    const { to, subject, html, text, serveId, imageData } = payload;
-
-    if (!to || !subject || (!html && !text)) {
-      return res.json({ success: false, message: "Missing required fields (to, subject, and either html or text)" });
-    }
-
-    // Get API key from environment variables
-    const resendApiKey = process.env.RESEND_KEY;
-    // Log just first 4 chars of API key for verification
-    log("API key starts with:", resendApiKey ? resendApiKey.substring(0, 4) : "missing");
-    if (!resendApiKey) {
-      return res.json({ success: false, message: "API key is missing" });
-    }
-
-    const resend = new Resend(resendApiKey);
-
-    const appwriteClient = new Client()
-      .setEndpoint(process.env.APPWRITE_FUNCTION_API_ENDPOINT)
-      .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
-      .setKey(process.env.APPWRITE_FUNCTION_API_KEY);
-    const databases = new Databases(appwriteClient);
-
-    const emailData = {
-      from: 'no-reply@justlegalsolutions.tech',
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      html,
-      text,
-      attachments: []
-    };
-
-    // If serveId is provided, fetch the document to get image_data,
-    // otherwise, if imageData is provided, use it directly.
-    if (serveId) {
-      log(`Fetching serve attempt with ID: ${serveId}`);
-      try {
-        const serve = await databases.getDocument(
-          process.env.APPWRITE_FUNCTION_DATABASE_ID,
-          process.env.APPWRITE_FUNCTION_SERVE_ATTEMPTS_COLLECTION_ID,
-          serveId
-        );
-        if (serve.image_data) {
-          log('Found image_data in serve attempt document');
-          let base64Content = serve.image_data;
-          if (serve.image_data.includes('base64,')) {
-            base64Content = serve.image_data.split('base64,')[1];
-          }
-          log(`Extracted base64 content length: ${base64Content.length}`);
-          emailData.attachments.push({
-            filename: 'serve_evidence.jpeg',
-            content: base64Content,
-            encoding: 'base64'
-          });
-          log('Image successfully attached from serve document');
-        } else {
-          log('No image_data found in serve attempt document');
-        }
-      } catch (fetchError) {
-        error('Failed to fetch serve attempt document:', fetchError.message);
-        return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
-      }
-    } else if (imageData) {
-      log("Using imageData provided in payload");
-      let base64Content = imageData;
-      if (imageData.includes("base64,")) {
-        base64Content = imageData.split("base64,")[1];
-      }
-      log(`Extracted base64 content length: ${base64Content.length}`);
-      emailData.attachments.push({
-        filename: 'serve_evidence.jpeg',
-        content: base64Content,
-        encoding: 'base64'
-      });
-      log('Image successfully attached using provided imageData');
-    } else {
-      log("No serveId or imageData provided; no image will be attached");
-    }
-
-    // Attempt to send the email and log response details
-    log("About to send email with Resend");
-    const response = await resend.emails.send(emailData);
-    log("Resend response:", JSON.stringify(response));
-
-    return res.json({ success: true, message: "Email sent successfully", data: response });
-
-  } catch (err) {
-    error("Error in emailer function:", err);
-    return res.json({ success: false, message: `Error: ${err.message}` });
+/**
+ * Normalize serve data from any format to the standard ServeAttemptData format
+ * This handles conversion between snake_case, camelCase, and Appwrite document formats
+ */
+export function normalizeServeData(serveData: any): ServeAttemptData | null {
+  // If no ID is provided, generate a temporary ID or return null
+  if (!serveData.id && !serveData.$id) {
+    console.warn("Skipping serve data without an ID:", serveData);
+    
+    // For development, you could generate a temporary ID
+    // serveData.id = `temp_${Math.random().toString(36).substring(2, 15)}`;
+    
+    // Return null for now
+    return null;
   }
-};
+
+  // Normalize ID
+  const id = serveData.id || serveData.$id;
+
+  // Normalize client ID
+  const clientId = serveData.clientId || serveData.client_id;
+
+  // Normalize timestamp
+  let timestamp = null;
+  if (serveData.timestamp) {
+    if (typeof serveData.timestamp === 'string') {
+      timestamp = new Date(serveData.timestamp);
+    } else if (serveData.timestamp instanceof Date) {
+      timestamp = serveData.timestamp;
+    } else if (typeof serveData.timestamp === 'object' && serveData.timestamp) {
+      // Handle Appwrite date format
+      const ts = serveData.timestamp as any;
+      if (ts.$date) {
+        timestamp = new Date(ts.$date);
+      } else if (ts.iso) {
+        timestamp = new Date(ts.iso);
+      } else if (ts.value) {
+        timestamp = new Date(ts.value);
+      }
+    }
+  }
+
+  // Ensure timestamp is set
+  if (!timestamp) {
+    timestamp = new Date();
+  }
+
+  // Create the normalized object
+  const normalizedData: ServeAttemptData = {
+    id,
+    clientId,
+    timestamp,
+    clientName: serveData.clientName || serveData.client_name || "",
+    clientEmail: serveData.clientEmail || serveData.client_email || "",
+    caseNumber: serveData.caseNumber || serveData.case_number || "",
+    address: serveData.address || "",
+    notes: serveData.notes || "",
+    status: serveData.status || "pending",
+    coordinates: serveData.coordinates || null,
+    imageData: serveData.imageData || serveData.image_data || null,
+    attemptNumber: serveData.attemptNumber || serveData.attempt_number || 1,
+  };
+
+  return normalizedData;
+}
+
+/**
+ * Normalize an array of serve data objects
+ */
+export function normalizeServeDataArray(serves: any[]): ServeAttemptData[] {
+  if (!Array.isArray(serves)) {
+    console.warn("Expected array of serve data, got:", typeof serves);
+    return [];
+  }
+  
+  // Filter out null values after normalization
+  return serves
+    .map(serve => normalizeServeData(serve))
+    .filter(serve => serve !== null) as ServeAttemptData[];
+}
+
+/**
+ * Adds client names to serve attempts based on clientId
+ */
+export function addClientNamesToServes(serves: ServeAttemptData[], clients: ClientData[]): ServeAttemptData[] {
+  if (!serves || !clients || !Array.isArray(serves) || !Array.isArray(clients)) {
+    return serves || [];
+  }
+
+  return serves.map(serve => {
+    // Skip if serve already has a client name
+    if (serve.clientName && serve.clientName !== "Unknown Client") {
+      return serve;
+    }
+
+    // Find matching client - check both id and $id properties
+    const client = clients.find(c => {
+      // Handle both ClientData and raw Appwrite document formats
+      const clientId = c.id || (c as any).$id;
+      return clientId === serve.clientId;
+    });
+    
+    // Return updated serve with client name if found
+    if (client) {
+      return {
+        ...serve,
+        clientName: client.name
+      };
+    }
+    
+    return serve;
+  });
+}
