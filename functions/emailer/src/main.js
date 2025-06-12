@@ -76,11 +76,15 @@ export default async ({ req, res, log, error }) => {
       });
     }
 
+    // Remove any Google Maps link from the HTML before inserting coordinates
+    if (emailData.html) {
+      emailData.html = emailData.html.replace(/<a[^>]*href="https:\/\/www\.google\.com\/maps[^>]*>.*?<\/a>/gi, '');
+    }
+
     // --- GPS COORDINATES INSERTION ---
     let coordsHtml = '';
     let coordsText = '';
     if (coordinates) {
-      // Try to split into latitude and longitude if possible
       let lat = '';
       let lon = '';
       if (coordinates.includes(',')) {
@@ -99,12 +103,6 @@ export default async ({ req, res, log, error }) => {
     if (notes) {
       notesHtml = `<p><strong>Notes:</strong> ${notes}</p>`;
       notesText = `Notes: ${notes}\n`;
-    }
-
-    // --- REMOVE ANY GOOGLE MAPS LINK FROM THE TEMPLATE ---
-    if (emailData.html) {
-      // Remove any "View on Google Maps" or Google Maps links
-      emailData.html = emailData.html.replace(/<a[^>]*href="https:\/\/www\.google\.com\/maps[^>]*>.*?<\/a>/gi, '');
     }
 
     // --- INSERT COORDINATES & NOTES INTO THE HTML TEMPLATE ---
