@@ -45,12 +45,10 @@ export default async ({ req, res, log, error }) => {
           serveId
         );
 
-        // Make sure to match the field name exactly as in your database!
         if (serve && serve.coordinates) {
           coordinates = serve.coordinates;
         }
 
-        // Handle image_data if present
         if (serve && serve.image_data) {
           let base64Content = serve.image_data;
           if (serve.image_data.includes('base64,')) {
@@ -79,23 +77,37 @@ export default async ({ req, res, log, error }) => {
     }
 
     // --- GOOGLE MAPS LINK GENERATION ---
+    let mapsHtml = '';
+    let mapsText = '';
     if (coordinates) {
       const cleanedCoords = coordinates.replace(/\s/g, '');
       const mapsLink = `https://www.google.com/maps/search/?api=1&query=${cleanedCoords}`;
-      const mapsHtml = `<p>Location: <a href="${mapsLink}">${cleanedCoords}</a></p>`;
-      const mapsText = `Location: ${mapsLink}\n`;
-
-      emailData.html = (emailData.html || '') + mapsHtml;
-      emailData.text = (emailData.text || '') + mapsText;
+      mapsHtml = `<p><strong>Location:</strong> <a href="${mapsLink}">${cleanedCoords}</a></p>`;
+      mapsText = `Location: ${mapsLink}\n`;
     }
 
     // Add notes if present
+    let notesHtml = '';
+    let notesText = '';
     if (notes) {
-      const notesHtml = `<p><strong>Notes:</strong> ${notes}</p>`;
-      const notesText = `Notes: ${notes}\n`;
-      emailData.html = (emailData.html || '') + notesHtml;
-      emailData.text = (emailData.text || '') + notesText;
+      notesHtml = `<p><strong>Notes:</strong> ${notes}</p>`;
+      notesText = `Notes: ${notes}\n`;
     }
+
+    // --- INSERT MAPS LINK & NOTES INTO THE HTML TEMPLATE ---
+    if (emailData.html) {
+      if (emailData.html.includes('</body>')) {
+        emailData.html = emailData.html.replace('</body>', `${mapsHtml}${notesHtml}</body>`);
+      } else if (emailData.html.includes('</html>')) {
+        emailData.html = emailData.html.replace('</html>', `${mapsHtml}${notesHtml}</html>`);
+      } else {
+        emailData.html += mapsHtml + notesHtml;
+      }
+    } else {
+      emailData.html = mapsHtml + notesHtml;
+    }
+
+    emailData.text = (emailData.text || '') + mapsText + notesText;
 
     // Send the email
     const transporter = nodemailer.createTransport({
