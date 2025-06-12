@@ -6,7 +6,6 @@ export default async ({ req, res, log, error }) => {
   log('Processing request...');
 
   try {
-    // Get payload from request
     const payload = req.payload
       ? (typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload)
       : (req.body ? (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) : null);
@@ -14,10 +13,6 @@ export default async ({ req, res, log, error }) => {
     if (!payload) {
       return res.json({ success: false, message: "No payload provided" });
     }
-
-    log(req.bodyText);
-    log(JSON.stringify(req.bodyJson));
-    log(JSON.stringify(req.headers));
 
     const { to, subject, html, text, serveId, imageData, notes } = payload;
 
@@ -43,7 +38,6 @@ export default async ({ req, res, log, error }) => {
     // Fetch serve document if serveId is provided
     let coordinates = null;
     if (serveId) {
-      log(`Fetching serve attempt with ID: ${serveId}`);
       try {
         const serve = await databases.getDocument(
           process.env.APPWRITE_FUNCTION_DATABASE_ID,
@@ -51,63 +45,48 @@ export default async ({ req, res, log, error }) => {
           serveId
         );
 
-        // Correctly extract coordinates as a string
-        if (serve.coordinates) {
+        // Make sure to match the field name exactly as in your database!
+        if (serve && serve.coordinates) {
           coordinates = serve.coordinates;
-          log(`Found coordinates: ${coordinates}`);
-        } else {
-          log('No coordinates found in serve attempt document');
         }
 
-        // Handle image data
-        if (serve.image_data) {
-          log('Found image_data in serve attempt document');
+        // Handle image_data if present
+        if (serve && serve.image_data) {
           let base64Content = serve.image_data;
           if (serve.image_data.includes('base64,')) {
             base64Content = serve.image_data.split('base64,')[1];
           }
-          log(`Extracted base64 content length: ${base64Content.length}`);
           emailData.attachments.push({
             filename: 'serve_evidence.jpeg',
             content: base64Content,
             encoding: 'base64'
           });
-          log('Image successfully attached from serve document');
-        } else {
-          log('No image_data found in serve attempt document');
         }
       } catch (fetchError) {
         error('Failed to fetch serve attempt document:', fetchError.message);
         return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
       }
     } else if (imageData) {
-      log("Using imageData provided in payload");
       let base64Content = imageData;
       if (imageData.includes("base64,")) {
         base64Content = imageData.split("base64,")[1];
       }
-      log(`Extracted base64 content length: ${base64Content.length}`);
       emailData.attachments.push({
         filename: 'serve_evidence.jpeg',
         content: base64Content,
         encoding: 'base64'
       });
-      log('Image successfully attached using provided imageData');
-    } else {
-      log("No serveId or imageData provided; no image will be attached");
     }
 
-    // Add Google Maps link if coordinates exist
+    // --- GOOGLE MAPS LINK GENERATION ---
     if (coordinates) {
       const cleanedCoords = coordinates.replace(/\s/g, '');
-      // Use the correct Google Maps URL format for coordinates
       const mapsLink = `https://www.google.com/maps/search/?api=1&query=${cleanedCoords}`;
       const mapsHtml = `<p>Location: <a href="${mapsLink}">${cleanedCoords}</a></p>`;
       const mapsText = `Location: ${mapsLink}\n`;
 
       emailData.html = (emailData.html || '') + mapsHtml;
       emailData.text = (emailData.text || '') + mapsText;
-      log('Google Maps link added to email content');
     }
 
     // Add notes if present
@@ -118,7 +97,7 @@ export default async ({ req, res, log, error }) => {
       emailData.text = (emailData.text || '') + notesText;
     }
 
-    // Read SMTP vars
+    // Send the email
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -129,7 +108,6 @@ export default async ({ req, res, log, error }) => {
       }
     });
 
-    // Send via Nodemailer
     const response = await transporter.sendMail(emailData);
 
     return res.json({ success: true, message: "Email sent successfully", data: response });
