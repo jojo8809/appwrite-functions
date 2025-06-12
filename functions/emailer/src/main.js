@@ -40,7 +40,7 @@ export default async ({ req, res, log, error }) => {
       attachments: []
     };
 
-    // If serveId is provided, fetch the document to get image_data,
+    // If serveId is provided, fetch the document to get image_data and coordinates,
     // otherwise, if imageData is provided, use it directly.
     if (serveId) {
       log(`Fetching serve attempt with ID: ${serveId}`);
@@ -50,6 +50,19 @@ export default async ({ req, res, log, error }) => {
           process.env.APPWRITE_FUNCTION_SERVE_ATTEMPTS_COLLECTION_ID,
           serveId
         );
+
+        // Handle coordinates
+        if (serve.coordinates) {
+          log(`Found coordinates: ${serve.coordinates}`);
+          const gpsHtml = `<p>GPS Coordinates: ${serve.coordinates}</p>`;
+          emailData.html = (emailData.html || '') + gpsHtml;
+          emailData.text = (emailData.text || '') + `\nGPS Coordinates: ${serve.coordinates}`;
+          log('GPS coordinates added to email content');
+        } else {
+          log('No coordinates found in serve attempt document');
+        }
+
+        // Handle image data
         if (serve.image_data) {
           log('Found image_data in serve attempt document');
           let base64Content = serve.image_data;
@@ -88,7 +101,7 @@ export default async ({ req, res, log, error }) => {
     }
 
     // Read SMTP vars
-    const transporter = nodemailer.createTransport({
+    const transporter = nodemailer.createTransporter({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
