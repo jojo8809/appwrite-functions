@@ -19,7 +19,7 @@ export default async ({ req, res, log, error }) => {
     log(JSON.stringify(req.bodyJson));
     log(JSON.stringify(req.headers));
 
-    const { to, subject, html, text, serveId, imageData } = payload;
+    const { to, subject, html, text, serveId, imageData, notes } = payload;
 
     if (!to || !subject || (!html && !text)) {
       return res.json({ success: false, message: "Missing required fields (to, subject, and either html or text)" });
@@ -42,6 +42,7 @@ export default async ({ req, res, log, error }) => {
 
     // If serveId is provided, fetch the document to get image_data and coordinates,
     // otherwise, if imageData is provided, use it directly.
+    let coordinates = null;
     if (serveId) {
       log(`Fetching serve attempt with ID: ${serveId}`);
       try {
@@ -53,11 +54,8 @@ export default async ({ req, res, log, error }) => {
 
         // Handle coordinates
         if (serve.coordinates) {
-          log(`Found coordinates: ${serve.coordinates}`);
-          const gpsHtml = `<p>GPS Coordinates: ${serve.coordinates}</p>`;
-          emailData.html = (emailData.html || '') + gpsHtml;
-          emailData.text = (emailData.text || '') + `\nGPS Coordinates: ${serve.coordinates}`;
-          log('GPS coordinates added to email content');
+          coordinates = serve.coordinates;
+          log(`Found coordinates: ${coordinates}`);
         } else {
           log('No coordinates found in serve attempt document');
         }
@@ -100,8 +98,30 @@ export default async ({ req, res, log, error }) => {
       log("No serveId or imageData provided; no image will be attached");
     }
 
+    // Add Google Maps link if coordinates exist
+    let mapsLink = '';
+    if (coordinates) {
+      // Clean up spaces just in case
+      const cleanedCoords = coordinates.replace(/\s/g, '');
+      mapsLink = `https://www.google.com/maps/search/?api=1&query=${cleanedCoords}`;
+      const mapsHtml = `<p>Location: <a href="${mapsLink}">${cleanedCoords}</a></p>`;
+      const mapsText = `Location: ${mapsLink}\n`;
+
+      emailData.html = (emailData.html || '') + mapsHtml;
+      emailData.text = (emailData.text || '') + mapsText;
+      log('Google Maps link added to email content');
+    }
+
+    // Add notes if present
+    if (notes) {
+      const notesHtml = `<p><strong>Notes:</strong> ${notes}</p>`;
+      const notesText = `Notes: ${notes}\n`;
+      emailData.html = (emailData.html || '') + notesHtml;
+      emailData.text = (emailData.text || '') + notesText;
+    }
+
     // Read SMTP vars
-    const transporter = nodemailer.createTransporter({
+    const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
