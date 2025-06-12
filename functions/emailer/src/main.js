@@ -82,8 +82,8 @@ export default async ({ req, res, log, error }) => {
     if (coordinates) {
       const cleanedCoords = coordinates.replace(/\s/g, '');
       const mapsLink = `https://www.google.com/maps/search/?api=1&query=${cleanedCoords}`;
-      mapsHtml = `<p><strong>Location:</strong> <a href="${mapsLink}">${cleanedCoords}</a></p>`;
-      mapsText = `Location: ${mapsLink}\n`;
+      mapsHtml = `<p><strong>Location (GPS):</strong> <a href="${mapsLink}">${cleanedCoords}</a></p>`;
+      mapsText = `Location (GPS): ${mapsLink}\n`;
     }
 
     // Add notes if present
@@ -94,14 +94,32 @@ export default async ({ req, res, log, error }) => {
       notesText = `Notes: ${notes}\n`;
     }
 
-    // --- INSERT MAPS LINK & NOTES INTO THE HTML TEMPLATE ---
+    // --- INSERT/REPLACE MAPS LINK IN THE HTML TEMPLATE ---
     if (emailData.html) {
-      if (emailData.html.includes('</body>')) {
-        emailData.html = emailData.html.replace('</body>', `${mapsHtml}${notesHtml}</body>`);
-      } else if (emailData.html.includes('</html>')) {
-        emailData.html = emailData.html.replace('</html>', `${mapsHtml}${notesHtml}</html>`);
-      } else {
-        emailData.html += mapsHtml + notesHtml;
+      // Replace any broken/placeholder Google Maps links
+      emailData.html = emailData.html.replace(
+        /<a\s+href="https:\/\/www\.google\.com\/maps[^"]*q=undefined,undefined[^"]*"[^>]*>.*?<\/a>/gi,
+        mapsHtml || ''
+      );
+
+      // If no link was present, append at the end
+      if (mapsHtml && !emailData.html.includes(mapsLink)) {
+        if (emailData.html.includes('</body>')) {
+          emailData.html = emailData.html.replace('</body>', `${mapsHtml}${notesHtml}</body>`);
+        } else if (emailData.html.includes('</html>')) {
+          emailData.html = emailData.html.replace('</html>', `${mapsHtml}${notesHtml}</html>`);
+        } else {
+          emailData.html += mapsHtml + notesHtml;
+        }
+      } else if (notesHtml) {
+        // Only notes need to be added
+        if (emailData.html.includes('</body>')) {
+          emailData.html = emailData.html.replace('</body>', `${notesHtml}</body>`);
+        } else if (emailData.html.includes('</html>')) {
+          emailData.html = emailData.html.replace('</html>', `${notesHtml}</html>`);
+        } else {
+          emailData.html += notesHtml;
+        }
       }
     } else {
       emailData.html = mapsHtml + notesHtml;
