@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer';
 import process from "node:process";
-import { Client, Databases } from 'node-appwrite';
+
+// We no longer need the Appwrite SDK here because we are not accessing the database.
+// import { Client, Databases } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
     log('Processing request...');
@@ -13,19 +15,14 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, message: "No payload provided" });
         }
 
-        const { to, subject, html, text, serveId, imageData, notes } = payload;
+        // We get everything we need directly from the payload now.
+        const { to, subject, html, text, imageData, coordinates, notes } = payload;
 
-        if (!to || !subject || (!html && !text)) {
-            return res.json({ success: false, message: "Missing required fields (to, subject, and either html or text)" });
+        if (!to || !subject || !html) {
+            return res.json({ success: false, message: "Missing required fields (to, subject, html)" });
         }
-
-        const appwriteClient = new Client()
-            .setEndpoint(process.env.APPWRITE_FUNCTION_API_ENDPOINT)
-            .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
-            .setKey(process.env.APPWRITE_FUNCTION_API_KEY);
-
-        const databases = new Databases(appwriteClient);
-
+        
+        // Remove placeholder links from the template.
         let emailHtml = html.replace(/<a[^>]*href="https?:\/\/www\.google\.com\/maps[^>]*>.*?<\/a>/gi, '');
 
         const emailData = {
@@ -36,41 +33,8 @@ export default async ({ req, res, log, error }) => {
             text,
             attachments: []
         };
-
-        let coordinates = null;
-
-        if (serveId) {
-            log(`Fetching document with serveId: ${serveId}`);
-            try {
-                const serve = await databases.getDocument(
-                    process.env.APPWRITE_FUNCTION_DATABASE_ID,
-                    process.env.APPWRITE_FUNCTION_SERVE_ATTEMPTS_COLLECTION_ID,
-                    serveId
-                );
-
-                if (serve.coordinates) {
-                    coordinates = serve.coordinates;
-                    log(`Found coordinates: ${coordinates}`);
-                } else {
-                    log('No coordinates found in document.');
-                }
-
-                if (serve.image_data) {
-                    let base64Content = serve.image_data;
-                    if (serve.image_data.includes('base64,')) {
-                        base64Content = serve.image_data.split('base64,')[1];
-                    }
-                    emailData.attachments.push({
-                        filename: 'serve_evidence.jpeg',
-                        content: base64Content,
-                        encoding: 'base64'
-                    });
-                }
-            } catch (fetchError) {
-                error(`Failed to fetch document: ${fetchError.message}`);
-                // Don't stop execution; just send the email without GPS/image
-            }
-        } else if (imageData) {
+        
+        if (imageData) {
             let base64Content = imageData;
             if (imageData.includes("base64,")) {
                 base64Content = imageData.split("base64,")[1];
@@ -81,13 +45,11 @@ export default async ({ req, res, log, error }) => {
                 encoding: 'base64'
             });
         }
-
+        
         let detailsHtml = '';
-        let detailsText = '';
 
         if (coordinates || notes) {
             detailsHtml += `<hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;"><p><strong>Additional Details:</strong></p>`;
-            detailsText += `\n\n---\nAdditional Details:\n`;
         }
         
         if (coordinates) {
@@ -95,14 +57,12 @@ export default async ({ req, res, log, error }) => {
                 const [lat, lon] = coordinates.split(',').map(s => s.trim());
                 if (lat && lon) {
                     detailsHtml += `<p><strong>Serve Attempt Coordinates:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}">${coordinates}</a></p>`;
-                    detailsText += `Serve Attempt Coordinates: ${coordinates}\nView on Map: https://www.google.com/maps?q=${lat},${lon}\n`;
                 }
             }
         }
 
         if (notes) {
             detailsHtml += `<p><strong>Notes:</strong> ${notes}</p>`;
-            detailsText += `Notes: ${notes}\n`;
         }
 
         if (emailData.html.includes('</body>')) {
@@ -110,7 +70,6 @@ export default async ({ req, res, log, error }) => {
         } else {
             emailData.html += detailsHtml;
         }
-        emailData.text = (emailData.text || '') + detailsText;
 
         const transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,
@@ -122,9 +81,9 @@ export default async ({ req, res, log, error }) => {
             }
         });
 
-        const response = await transporter.sendMail(emailData);
-        log("Email sent successfully via nodemailer.");
-        return res.json({ success: true, message: "Email sent successfully", data: response });
+        await transporter.sendMail(emailData);
+        log("Email sent successfully.");
+        return res.json({ success: true, message: "Email sent successfully" });
 
     } catch (err) {
         error(err.message);
