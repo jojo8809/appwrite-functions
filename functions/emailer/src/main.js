@@ -14,6 +14,9 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, message: "No payload provided" });
         }
 
+        // Log the entire payload to help with debugging
+        log(`Received payload: ${JSON.stringify(payload)}`);
+
         // Destructure all expected properties from the payload
         const { to, subject, html, text, serveId, imageData, notes } = payload;
 
@@ -28,11 +31,14 @@ export default async ({ req, res, log, error }) => {
 
         const databases = new Databases(appwriteClient);
 
+        // --- FIX: Proactively remove any placeholder map links from the template ---
+        let emailHtml = html.replace(/<a[^>]*href="https?:\/\/www\.google\.com\/maps[^>]*>.*?<\/a>/gi, '');
+
         const emailData = {
             from: process.env.SMTP_FROM || 'no-reply@example.com',
             to: Array.isArray(to) ? to : [to],
             subject,
-            html,
+            html: emailHtml, // Use the cleaned HTML
             text,
             attachments: []
         };
@@ -47,6 +53,9 @@ export default async ({ req, res, log, error }) => {
                     process.env.APPWRITE_FUNCTION_SERVE_ATTEMPTS_COLLECTION_ID,
                     serveId
                 );
+                
+                // Log the entire fetched document for debugging
+                log(`Fetched document: ${JSON.stringify(serve)}`);
 
                 if (serve.coordinates) {
                     coordinates = serve.coordinates;
@@ -56,7 +65,6 @@ export default async ({ req, res, log, error }) => {
                 }
 
                 if (serve.image_data) {
-                    log('Found image_data in serve attempt document');
                     let base64Content = serve.image_data;
                     if (serve.image_data.includes('base64,')) {
                         base64Content = serve.image_data.split('base64,')[1];
@@ -72,7 +80,6 @@ export default async ({ req, res, log, error }) => {
                 return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
             }
         } else if (imageData) {
-            log("Using imageData provided in payload for attachment");
             let base64Content = imageData;
             if (imageData.includes("base64,")) {
                 base64Content = imageData.split("base64,")[1];
@@ -84,7 +91,6 @@ export default async ({ req, res, log, error }) => {
             });
         }
 
-        // --- NEW: Create a dedicated section for GPS and Notes ---
         let detailsHtml = '';
         let detailsText = '';
 
@@ -93,28 +99,24 @@ export default async ({ req, res, log, error }) => {
             detailsText += `\n\n---\nAdditional Details:\n`;
         }
         
+        // --- FIX: Reordered to put GPS before Notes ---
         // GPS Block
         if (coordinates) {
-            // Defensive check to ensure coordinates is a string with a comma
             if (typeof coordinates === 'string' && coordinates.includes(',')) {
                 const coordParts = coordinates.split(',');
                 const lat = coordParts[0] ? coordParts[0].trim() : '';
                 const lon = coordParts[1] ? coordParts[1].trim() : '';
 
                 if (lat && lon) {
-                    // If parsing is successful, show the raw coordinates and a link
-                    detailsHtml += `<p><strong>GPS Coordinates:</strong> ${coordinates}</p>`;
-                    detailsHtml += `<p><strong>View on Map:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}">Click Here</a></p>`;
-                    detailsText += `GPS Coordinates: ${coordinates}\nView on Map: https://www.google.com/maps?q=${lat},${lon}\n`;
+                    detailsHtml += `<p><strong>Serve Attempt Coordinates:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}">${coordinates}</a></p>`;
+                    detailsText += `Serve Attempt Coordinates: ${coordinates}\nView on Map: https://www.google.com/maps?q=${lat},${lon}\n`;
                 } else {
-                    // Fallback if parsing gives empty lat/lon
-                    detailsHtml += `<p><strong>GPS Coordinates:</strong> ${coordinates}</p>`;
-                    detailsText += `GPS Coordinates: ${coordinates}\n`;
+                    detailsHtml += `<p><strong>Serve Attempt Coordinates:</strong> ${coordinates}</p>`;
+                    detailsText += `Serve Attempt Coordinates: ${coordinates}\n`;
                 }
             } else {
-                 // Fallback if coordinates is not a string or has no comma
-                detailsHtml += `<p><strong>GPS Coordinates:</strong> ${coordinates}</p>`;
-                detailsText += `GPS Coordinates: ${coordinates}\n`;
+                detailsHtml += `<p><strong>Serve Attempt Coordinates:</strong> ${coordinates}</p>`;
+                detailsText += `Serve Attempt Coordinates: ${coordinates}\n`;
             }
         }
 
@@ -125,19 +127,13 @@ export default async ({ req, res, log, error }) => {
         }
 
         // Inject the new HTML and text into the email body
-        if (emailData.html) {
-             if (emailData.html.includes('</body>')) {
-                 emailData.html = emailData.html.replace('</body>', `${detailsHtml}</body>`);
-             } else {
-                 emailData.html += detailsHtml;
-             }
+        if (emailData.html.includes('</body>')) {
+            emailData.html = emailData.html.replace('</body>', `${detailsHtml}</body>`);
         } else {
-            emailData.html = detailsHtml;
+            emailData.html += detailsHtml;
         }
-
         emailData.text = (emailData.text || '') + detailsText;
 
-        // Configure Nodemailer transporter
         const transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,
             port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -148,7 +144,6 @@ export default async ({ req, res, log, error }) => {
             }
         });
 
-        // Send the email
         log("Sending email...");
         const response = await transporter.sendMail(emailData);
         log("Email sent successfully.");
