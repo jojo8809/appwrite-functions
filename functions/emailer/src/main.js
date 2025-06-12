@@ -40,8 +40,7 @@ export default async ({ req, res, log, error }) => {
       attachments: []
     };
 
-    // If serveId is provided, fetch the document to get image_data and coordinates,
-    // otherwise, if imageData is provided, use it directly.
+    // Fetch serve document if serveId is provided
     let coordinates = null;
     if (serveId) {
       log(`Fetching serve attempt with ID: ${serveId}`);
@@ -99,11 +98,9 @@ export default async ({ req, res, log, error }) => {
     }
 
     // Add Google Maps link if coordinates exist
-    let mapsLink = '';
     if (coordinates) {
-      // Clean up spaces just in case
       const cleanedCoords = coordinates.replace(/\s/g, '');
-      mapsLink = `https://www.google.com/maps/search/?api=1&query=${cleanedCoords}`;
+      const mapsLink = `https://www.google.com/maps/search/?api=1&query=${cleanedCoords}`;
       const mapsHtml = `<p>Location: <a href="${mapsLink}">${cleanedCoords}</a></p>`;
       const mapsText = `Location: ${mapsLink}\n`;
 
