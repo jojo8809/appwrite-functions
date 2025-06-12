@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import process from "node:process";
 
-// We no longer need the Appwrite SDK here because we are not accessing the database.
+// We no longer need the Appwrite SDK here
 // import { Client, Databases } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
@@ -15,14 +15,14 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, message: "No payload provided" });
         }
 
-        // We get everything we need directly from the payload now.
+        // We get everything we need directly from the payload.
+        // We no longer use `serveId`.
         const { to, subject, html, text, imageData, coordinates, notes } = payload;
 
         if (!to || !subject || !html) {
             return res.json({ success: false, message: "Missing required fields (to, subject, html)" });
         }
         
-        // Remove placeholder links from the template.
         let emailHtml = html.replace(/<a[^>]*href="https?:\/\/www\.google\.com\/maps[^>]*>.*?<\/a>/gi, '');
 
         const emailData = {
@@ -56,7 +56,7 @@ export default async ({ req, res, log, error }) => {
              if (typeof coordinates === 'string' && coordinates.includes(',')) {
                 const [lat, lon] = coordinates.split(',').map(s => s.trim());
                 if (lat && lon) {
-                    detailsHtml += `<p><strong>Serve Attempt Coordinates:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}">${coordinates}</a></p>`;
+                    detailsHtml += `<p><strong>Serve Attempt Coordinates:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">${coordinates}</a></p>`;
                 }
             }
         }
