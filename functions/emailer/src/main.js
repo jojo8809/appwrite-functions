@@ -51,7 +51,7 @@ export default async ({ req, res, log, error }) => {
           serveId
         );
 
-        // Handle coordinates
+        // Correctly extract coordinates as a string
         if (serve.coordinates) {
           coordinates = serve.coordinates;
           log(`Found coordinates: ${coordinates}`);
@@ -100,6 +100,7 @@ export default async ({ req, res, log, error }) => {
     // Add Google Maps link if coordinates exist
     if (coordinates) {
       const cleanedCoords = coordinates.replace(/\s/g, '');
+      // Use the correct Google Maps URL format for coordinates
       const mapsLink = `https://www.google.com/maps/search/?api=1&query=${cleanedCoords}`;
       const mapsHtml = `<p>Location: <a href="${mapsLink}">${cleanedCoords}</a></p>`;
       const mapsText = `Location: ${mapsLink}\n`;
