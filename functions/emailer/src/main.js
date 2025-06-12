@@ -39,7 +39,7 @@ export default async ({ req, res, log, error }) => {
         };
 
         // This will store the coordinates after we fetch them
-        let coordinates = null; 
+        let coordinates = null;
 
         // If serveId is provided, fetch the document
         if (serveId) {
@@ -51,7 +51,7 @@ export default async ({ req, res, log, error }) => {
                     serveId
                 );
 
-                // **FIX 1: Get coordinates from the fetched document**
+                // Get coordinates from the fetched document
                 if (serve.coordinates) {
                     coordinates = serve.coordinates;
                     log(`Found coordinates: ${coordinates}`);
@@ -76,7 +76,7 @@ export default async ({ req, res, log, error }) => {
                     log('No image_data found in serve attempt document');
                 }
             } catch (fetchError) {
-                error('Failed to fetch serve attempt document:', fetchError.message);
+                error(fetchError); // Log the full error for more details
                 return res.json({ success: false, message: 'Failed to fetch serve attempt document' }, 500);
             }
         } else if (imageData) {
@@ -93,15 +93,23 @@ export default async ({ req, res, log, error }) => {
             log('Image successfully attached using provided imageData');
         }
 
-        // **FIX 2: Format the coordinates and notes to be inserted into the email**
+        // Format the coordinates and notes to be inserted into the email
         let coordsHtml = '';
         let coordsText = '';
         if (coordinates) {
-            const [lat, lon] = String(coordinates).split(',').map(s => s.trim());
-            coordsHtml = `<p><strong>GPS Coordinates:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}">${coordinates}</a></p><p><strong>Latitude:</strong> ${lat}<br><strong>Longitude:</strong> ${lon}</p>`;
-            coordsText = `\nGPS Coordinates: ${coordinates}\nLatitude: ${lat}\nLongitude: ${lon}\n`;
+            const coordParts = String(coordinates).split(',');
+            const lat = coordParts[0] ? coordParts[0].trim() : '';
+            const lon = coordParts[1] ? coordParts[1].trim() : '';
+            
+            if (lat && lon) {
+                coordsHtml = `<p><strong>GPS Coordinates:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}">${coordinates}</a></p><p><strong>Latitude:</strong> ${lat}<br><strong>Longitude:</strong> ${lon}</p>`;
+                coordsText = `\nGPS Coordinates: ${coordinates}\nLatitude: ${lat}\nLongitude: ${lon}\n`;
+            } else {
+                coordsHtml = `<p><strong>GPS Coordinates:</strong> ${coordinates}</p>`;
+                coordsText = `\nGPS Coordinates: ${coordinates}\n`;
+            }
         }
-        
+
         let notesHtml = '';
         let notesText = '';
         if (notes) {
@@ -109,7 +117,7 @@ export default async ({ req, res, log, error }) => {
             notesText = `\nNotes: ${notes}\n`;
         }
 
-        // **FIX 3: Inject the new HTML and text into the email body**
+        // Inject the new HTML and text into the email body
         if (emailData.html) {
              if (emailData.html.includes('</body>')) {
                  emailData.html = emailData.html.replace('</body>', `${coordsHtml}${notesHtml}</body>`);
@@ -140,16 +148,7 @@ export default async ({ req, res, log, error }) => {
         return res.json({ success: true, message: "Email sent successfully", data: response });
 
     } catch (err) {
-        error(err.message);
+        error(err); // Log the full error object for better debugging
         return res.json({ success: false, message: `Error: ${err.message}` });
     }
 };
-```
-
-### Summary of the Fixes:
-
-1.  **Read Coordinates:** After fetching the `serve` document, the code now explicitly checks for `serve.coordinates` and stores the value.
-2.  **Format Content:** It creates new HTML and plain text snippets for the GPS coordinates (including a proper Google Maps link) and any notes you passed in the payload.
-3.  **Inject Content:** It intelligently adds this new information to the end of your email's HTML and text content before sending.
-
-Deploy this updated function, and it should now correctly include the GPS data in your emai
