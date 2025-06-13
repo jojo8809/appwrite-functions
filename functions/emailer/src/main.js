@@ -1,11 +1,9 @@
-import nodemailer from 'nodemailer';
+// Remove nodemailer import - we'll use Resend API instead
+// import nodemailer from 'nodemailer';
 import process from "node:process";
 
-// We no longer need the Appwrite SDK here
-// import { Client, Databases } from 'node-appwrite';
-
 export default async ({ req, res, log, error }) => {
-    log('Processing request...');
+    log('Processing email request...');
     try {
         const payload = req.payload
             ? (typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload)
@@ -15,25 +13,28 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, message: "No payload provided" });
         }
 
-        // We get everything we need directly from the payload.
-        // We no longer use `serveId`.
         const { to, subject, html, text, imageData, coordinates, notes } = payload;
 
         if (!to || !subject || !html) {
             return res.json({ success: false, message: "Missing required fields (to, subject, html)" });
         }
-
+        
         let emailHtml = html.replace(/<a[^>]*href="https?:\/\/www\.google\.com\/maps[^>]*>.*?<\/a>/gi, '');
 
+        // Handle recipients array/string
+        const recipients = Array.isArray(to) ? to : [to];
+        
+        // Build email data for Resend API
         const emailData = {
             from: process.env.SMTP_FROM || 'no-reply@example.com',
-            to: Array.isArray(to) ? to : [to],
+            to: recipients,
             subject,
             html: emailHtml,
             text,
             attachments: []
         };
-
+        
+        // Handle image attachment
         if (imageData) {
             let base64Content = imageData;
             if (imageData.includes("base64,")) {
@@ -45,15 +46,15 @@ export default async ({ req, res, log, error }) => {
                 encoding: 'base64'
             });
         }
-
+        
+        // Add coordinates and notes
         let detailsHtml = '';
-
         if (coordinates || notes) {
             detailsHtml += `<hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;"><p><strong>Additional Details:</strong></p>`;
         }
-
+        
         if (coordinates) {
-             if (typeof coordinates === 'string' && coordinates.includes(',')) {
+            if (typeof coordinates === 'string' && coordinates.includes(',')) {
                 const [lat, lon] = coordinates.split(',').map(s => s.trim());
                 if (lat && lon) {
                     detailsHtml += `<p><strong>Serve Attempt Coordinates:</strong> <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">${coordinates}</a></p>`;
@@ -71,22 +72,28 @@ export default async ({ req, res, log, error }) => {
             emailData.html += detailsHtml;
         }
 
-        const transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST,
-            port: parseInt(process.env.SMTP_PORT || '587', 10),
-            secure: process.env.SMTP_SECURE === 'true',
-            auth: {
-                user: process.env.SMTP_USER,
-                pass: process.env.SMTP_PASSWORD
-            }
+        // SEND EMAIL VIA RESEND API (instead of nodemailer)
+        const resendResponse = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.RESEND_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(emailData)
         });
 
-        await transporter.sendMail(emailData);
-        log("Email sent successfully.");
-        return res.json({ success: true, message: "Email sent successfully" });
+        if (!resendResponse.ok) {
+            const errorData = await resendResponse.text();
+            throw new Error(`Resend API error: ${errorData}`);
+        }
+
+        const result = await resendResponse.json();
+        log("Email sent successfully via Resend: " + JSON.stringify(result));
+        
+        return res.json({ success: true, message: "Email sent successfully", messageId: result.id });
 
     } catch (err) {
-        error(err.message);
+        error('Email sending failed: ' + err.message);
         return res.json({ success: false, message: `Error: ${err.message}` }, 500);
     }
 };
