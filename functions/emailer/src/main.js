@@ -13,7 +13,7 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, message: "No payload provided" });
         }
 
-        const { to, subject, html, text, imageData, coordinates, notes } = payload;
+        const { to, subject, html, text, imageData, imageUrl, coordinates, notes } = payload;
 
         if (!to || !subject || !html) {
             return res.json({ success: false, message: "Missing required fields (to, subject, html)" });
@@ -34,16 +34,35 @@ export default async ({ req, res, log, error }) => {
             attachments: []
         };
         
-        // Handle image attachment
-        if (imageData) {
+        // Handle image attachment - Priority: imageUrl (new) > imageData (legacy)
+        if (imageUrl && imageUrl.startsWith('http')) {
+            log(`Downloading image from URL: ${imageUrl}`);
+            try {
+                const response = await fetch(imageUrl);
+                if (response.ok) {
+                    const arrayBuffer = await response.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    const base64Content = buffer.toString('base64');
+                    emailData.attachments.push({
+                        filename: 'serve_evidence.jpg',
+                        content: base64Content
+                    });
+                    log(`Image downloaded and attached (${buffer.length} bytes)`);
+                } else {
+                    error(`Failed to download image: ${response.status} ${response.statusText}`);
+                }
+            } catch (downloadError) {
+                error('Error downloading image from URL: ' + downloadError.message);
+            }
+        } else if (imageData) {
+            log('Using legacy base64 imageData');
             let base64Content = imageData;
             if (imageData.includes("base64,")) {
                 base64Content = imageData.split("base64,")[1];
             }
             emailData.attachments.push({
                 filename: 'serve_evidence.jpeg',
-                content: base64Content,
-                encoding: 'base64'
+                content: base64Content
             });
         }
         
